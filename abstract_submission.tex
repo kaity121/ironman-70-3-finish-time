@@ -1,0 +1,47 @@
+\documentclass[10pt,a4paper,onecolumn]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese,english]{babel}
+\usepackage{newtxtext,newtxmath}
+\usepackage{geometry}
+\geometry{top=2.2cm,bottom=2.2cm,left=2.2cm,right=2.2cm}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{4pt}
+
+\title{\vspace{-1.5em}\normalsize\textbf{HỘI THẢO NGHIÊN CỨU KHOA HỌC GIẢNG VIÊN VÀ SINH VIÊN}\\
+\small Phân hiệu Đại học FPT tại Đà Nẵng\\[1.3em]
+\Large\bfseries Race-Progression Finish Time Prediction in IRONMAN 70.3 Triathlons: Evaluating Discipline Information Value and Location Transferability via Supervised Learning}
+
+\author{Truong Minh Khue$^1$, Nguyen Song Thu$^1$, Pham Phuong Thao$^1$, Do Thi Gia Hoi$^1$\\
+\small $^1$Department of Artificial Intelligence, FPT University Da Nang, Vietnam\\
+\small \texttt{fudaresearch@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.5em}
+
+\noindent\textbf{Abstract---} Accurate finish-time forecasting in long-distance multi-sport events such as IRONMAN~70.3 triathlons (1.9\,km swim, 90\,km bike, and 21.1\,km run) can support athlete pacing strategies, coaching decisions, and event-day planning. Although previous studies have investigated machine learning-based performance prediction using athlete demographics, geographic characteristics, and race split information, the predictive value of progressively available race information and the robustness of predictions across temporal periods and event locations warrant further investigation.
+
+This study formulates finish-time estimation as a sequential supervised regression problem evaluated at three race-progression checkpoints on a unified cohort: $C_0$ (pre-race registration attributes: sex, age, athlete country, event location, and year), $C_1$ (post-swim, incorporating official swim time), and $C_2$ (post-bike, incorporating official bike time). Running splits, transition times, and final rankings are excluded from the predictive features to prevent information leakage. Following demographic filtering of age-group athletes aged 18--74 with sex recorded as M or F, a total of 1{,}152{,}658 eligible entries were audited; a data-consistency check identified and excluded 113 records from 2021--2023 whose recorded finish time was less than or equal to the combined swim and bike times, retaining 1{,}152{,}545 individual finishes for analysis spanning 2004--2023.
+
+Models were evaluated across two temporally separated phases. Phase~I used records from 2004--2016 for training ($N=495{,}489$) and 2019--2020 for out-of-period testing ($N=125{,}912$ across 127 races), with the intervening 2017--2018 period reserved for subsequent prediction-interval calibration. Phase~II used 2004--2018 for training ($N=697{,}267$), reserved 2019--2020 for calibration, and evaluated on 2021--2023 records sourced from Endurance-Data ($N=329{,}366$ across 258 races), providing an out-of-period assessment that may also reflect differences in data-source coverage and event composition. Linear Regression (LR), Random Forest (RF; 200 trees, depth 12, minimum leaf size 50), and a fixed, un-tuned CatBoost reference configuration (\texttt{CatBoost\_ref}; 120 iterations, seed 42) were benchmarked against three historical-median baselines: a global median ($B_0$), a sex--age median ($B_1$), and a checkpoint-aware median-remaining-time baseline adding observed swim/bike split(s) to the training-set conditional median remaining time ($B_2$, strictly excluding transition times).
+
+Results demonstrate that progressively incorporating race information substantially improves finish-time prediction. For \texttt{CatBoost\_ref}, Mean Absolute Error (MAE) decreased from 36.37\,min at $C_0$ to 28.43\,min at $C_1$, corresponding to a 7.94-min reduction associated with the addition of swim-time information, and further decreased by 13.64\,min to 14.79\,min at $C_2$ in Phase~I. In Phase~II, MAE decreased from 41.72\,min at $C_0$ to 33.45\,min at $C_1$, corresponding to an 8.27-min reduction, and further decreased by 17.67\,min to 15.79\,min at $C_2$. \texttt{CatBoost\_ref} also achieved lower MAE than the checkpoint-aware baseline $B_2$ by 6.11\,min at $C_1$ and 6.44\,min at $C_2$ in Phase~I, and by 6.10\,min at $C_1$ and 7.36\,min at $C_2$ in Phase~II, suggesting that the learned model captures predictive relationships beyond those represented by the baseline.
+
+These findings highlight the practical value of checkpoint-based finish-time forecasting and the importance of evaluating predictive models under temporally separated race conditions. Further analyses are planned to examine geographic generalization using location-based hierarchical modeling and to quantify prediction uncertainty through conformal prediction intervals.
+
+\medskip
+\noindent\textbf{Keywords---} Sports analytics; finish-time prediction; supervised learning; IRONMAN~70.3; temporal validation.
+
+\section*{References}
+\begin{enumerate}[label={[\arabic*]},leftmargin=*,itemsep=1pt]
+\item M. Thuany, D. Valero, E. Villiger, P. Forte, K. Weiss, M. S. Andrade, P. T. Nikolaidis, I. Cuk, T. Rosemann, and B. Knechtle, ``Modeling performance in IRONMAN 70.3 age group triathletes,'' \emph{Sports Medicine -- Open}, vol. 11, no. 1, Art. no. 148, 2025, doi: 10.1186/s40798-025-00948-0.
+\item P. T. Nikolaidis, D. Valero, K. Weiss, E. Villiger, M. Thuany, C. V. Sousa, M. Andrade, and B. Knechtle, ``Predicting overall performance in Ironman 70.3 age group triathletes through split disciplines,'' \emph{Scientific Reports}, vol. 13, Art. no. 11492, 2023, doi: 10.1038/s41598-023-38181-y.
+\item L. Prokhorenkova, G. Gusev, A. Vorobev, A. V. Dorogush, and A. Gulin, ``CatBoost: Unbiased boosting with categorical features,'' in \emph{Advances in Neural Information Processing Systems (NeurIPS)}, vol. 31, 2018, pp. 6639--6649.
+\end{enumerate}
+
+\end{document}
