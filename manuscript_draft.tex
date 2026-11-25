@@ -1,0 +1,826 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{microtype}
+\usepackage{authblk}
+\usepackage{tabularx}
+\usepackage{enumitem}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue
+}
+\providecommand{\doi}[1]{doi: \href{https://doi.org/#1}{#1}}
+
+% ---------------------------------------------------------------
+% Title
+% ---------------------------------------------------------------
+\title{\textbf{Race-Progression Finish Time Prediction in IRONMAN 70.3
+Triathlons: Evaluating Discipline Information Value and Location
+Transferability via Supervised Learning}}
+
+% ---------------------------------------------------------------
+% Authors
+% ---------------------------------------------------------------
+\author[1]{Truong Minh Khue}
+\author[1]{Nguyen Song Thu}
+\author[1]{Pham Phuong Thao}
+\author[1]{Do Thi Gia Hoi}
+\affil[1]{Department of Artificial Intelligence, FPT University
+Da Nang, Vietnam}
+\affil[ ]{\textit{fudaresearch@gmail.com}}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+% ---------------------------------------------------------------
+% Abstract
+% ---------------------------------------------------------------
+\begin{abstract}
+Predicting athlete finish time in long-distance multi-sport events such
+as the IRONMAN~70.3 triathlon (1.9\,km swim, 90\,km bike, 21.1\,km
+run) supports in-race pacing strategy and event operations.
+Although previous studies have investigated machine learning-based
+performance prediction using athlete demographics, geographic
+characteristics, and race split information, the predictive value of
+progressively available race information and the robustness of
+predictions across temporal periods and event locations warrant further
+investigation.
+We propose a sequential, race-progression supervised learning framework
+evaluated at three observation checkpoints: $C_0$ (pre-race
+registration data), $C_1$ (post-swim, adding the official swim split),
+and $C_2$ (post-bike, adding the official bike split).
+On a quality-controlled cohort of 1{,}152{,}545 individual finishes
+(2004--2023; audited from 1{,}152{,}658 pre-QC eligible entries), we
+benchmark Linear Regression (LR), Random Forest (RF), and an un-tuned
+CatBoost reference model (120 iterations, seed 42) against three
+domain-specific historical-median baselines.
+Using out-of-period temporal evaluation---Phase~I: trained on
+2004--2016, tested on 2019--2020; Phase~II: trained on 2004--2018,
+tested on 2021--2023---we quantify the MAE reduction associated with
+each sequential checkpoint.
+\texttt{CatBoost\_ref} MAE decreases from 36.37\,min at $C_0$ to
+28.43\,min at $C_1$ (a 7.94-min reduction with swim time) and further by
+13.64\,min to 14.79\,min at $C_2$ in Phase~I; in Phase~II, MAE decreases
+from 41.72\,min at $C_0$ to 33.45\,min at $C_1$ (an 8.27-min reduction)
+and further by 17.67\,min to 15.79\,min at $C_2$, outperforming the
+checkpoint-aware median-remaining-time baseline~($B_2$) by
+6.10--7.36\,min at $C_1$ and $C_2$.
+Further analyses are planned to examine geographic generalization via
+location-based hierarchical modeling and to quantify prediction
+uncertainty using Conformalized Quantile Regression.
+\end{abstract}
+
+\noindent\textbf{Keywords:} Sports analytics; finish-time prediction;
+supervised learning; IRONMAN~70.3; temporal validation.
+
+% ---------------------------------------------------------------
+% 1. Introduction
+% ---------------------------------------------------------------
+\section{Introduction}
+
+The IRONMAN~70.3---also called the Half-Ironman---is a widely
+contested long-distance triathlon format comprising three consecutive
+disciplines: a 1.9\,km (1.2-mile) open-water swim, a 90\,km (56-mile)
+cycling stage, and a 21.1\,km (13.1-mile) half-marathon run, totaling
+113.0\,km (70.3\,miles). Competition duration for age-group athletes
+typically ranges from four to eight hours, making accurate finish-time
+estimation valuable for strategic pacing, hydration planning, and
+event operations.
+
+From a statistical-learning perspective, finish-time prediction is
+inherently sequential. Before the starting gun, analysts have access
+only to static demographic and logistical attributes: athlete sex, age
+bracket, country of origin, race venue, and calendar year. As the race
+unfolds, each timing mat yields new course-split measurements.
+Clearing the swim mat ($C_1$) reflects both an athlete's swimming
+capability and race-day water conditions. Transitioning off the
+bicycle ($C_2$) reflects cumulative elapsed time and pacing across
+more than two-thirds of the total race distance, providing a strong
+predictor of final performance.
+
+\subsection{Literature Review and Related Work}
+
+Three bodies of work directly motivate this study.
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Demographic and pre-race forecasting.}
+  Thuany et al.~\cite{thuany2025modeling} analysed 823{,}464 race
+  records from IRONMAN~70.3 competitions using tree-based regression
+  algorithms (including Random Forest and CatBoost) trained on sex,
+  age group, country, and event location. Their study showed that
+  demographic and venue covariates capture baseline performance patterns
+  at the pre-race stage, but it did not examine sequential in-race
+  updating.
+
+  \item \textbf{Discipline-level correlations.}
+  Nikolaidis et al.~\cite{nikolaidis2023predicting} examined the
+  statistical relationships between individual split times and overall
+  finish time across 823{,}459 age-group IRONMAN~70.3 finishes using
+  multiple regression, correlation, and ANOVA. They investigated how
+  swimming, cycling, and running splits relate to overall finish time
+  without establishing a single dominant discipline across age groups;
+  however, their analysis focused on retrospective split associations
+  rather than prospective out-of-period checkpoint forecasting.
+
+  \item \textbf{Uncertainty quantification.}
+  Romano, Patterson, and Cand\`{e}s~\cite{romano2019conformalized}
+  introduced Conformalized Quantile Regression (CQR), which provides
+  distribution-free prediction intervals with finite-sample coverage
+  guarantees under exchangeability. In athletic performance modeling,
+  point estimates alone are insufficient; a calibrated interval
+  communicates the practical range within which an athlete's finish
+  time may fall.
+\end{enumerate}
+
+\subsection{Initial Two-Checkpoint Experiment and Research Gaps}
+\label{sec:tce}
+
+To motivate the present design, we first conducted an exploratory
+two-checkpoint experiment (hereafter TCE) using the integrated
+multi-source dataset~\cite{kaggle_dataset} that underpins this study.
+Table~\ref{tab:tce} summarises the configuration and reported outputs
+of the TCE; the original notebook and summary metrics are archived in
+the project repository~\cite{repo_artifact}.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Two-checkpoint initial experiment (TCE) configuration and
+results. Features for $C_0$: sex, age band, continent, athlete type,
+calendar year. $C_2$ added swim time and bike time simultaneously
+(no intermediate post-swim checkpoint). Data split: trained on
+2004--2020 ($N = 814{,}715$); evaluated on 2021--2023
+($N = 323{,}967$). Finish times were trimmed to full-sample P1/P99
+prior to training and categorical encoders were fit before the
+train--test split.}
+\label{tab:tce}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{llcccc}
+\toprule
+\textbf{Checkpoint} & \textbf{Model} & $N_{\text{fit}}$ &
+$N_{\text{test}}$ & \textbf{MAE (min)} & \textbf{RMSE (min)} \\
+\midrule
+$C_0$ (pre-race)  & Linear Regression & 814,715 & 323,967 & 41.44 & 51.30 \\
+$C_0$ (pre-race)  & Random Forest     & 814,715 & 323,967 & 40.89 & 51.16 \\
+$C_2$ (post-bike) & Linear Regression & 814,715 & 323,967 & 16.81 & 34.89 \\
+$C_2$ (post-bike) & Random Forest     & 814,715 & 323,967 & 15.39 & 20.34 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Moving from $C_0$ to $C_2$ in the TCE, RF~MAE fell by 25.50\,min
+(40.89 to 15.39\,min), a large apparent reduction. However, because
+of preprocessing leakage (full-sample P1/P99 target trimming and
+pre-split categorical encoding), the TCE serves strictly as a
+motivational pilot rather than an unbiased benchmark. It also leaves
+three methodological questions open:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Conflation of split-discipline value.} Because swim
+  time and bike time were injected simultaneously, the 25.50-min
+  reduction blends the contributions of both disciplines. It is unknown
+  how much error reduction is achieved immediately after the swim
+  split alone.
+
+  \item \textbf{Absence of a checkpoint-aware baseline.}
+  The TCE lacked a domain-specific split-aggregation sanity check
+  (Baseline~2, defined in Section~\ref{sec:baselines}) that adds
+  observed split times to demographic historical medians of remaining
+  time. Without $B_2$, algorithmic learning cannot be separated from
+  simple split arithmetic.
+
+  \item \textbf{Unverified out-of-period and spatial generalization.}
+  The TCE used a single cut (2004--2020 / 2021--2023) and omitted
+  out-of-period validation within a homogeneous source as well as
+  systematic venue transfer evaluation.
+\end{itemize}
+
+In response to these gaps, this study establishes a leakage-free,
+three-checkpoint pipeline evaluated across two out-of-period temporal
+phases on an identical paired cohort, benchmarks three predictive
+models against three domain baselines, and defines planned extensions
+for venue-level hierarchical modeling and prediction uncertainty.
+
+% ---------------------------------------------------------------
+% 2. Research Objectives and Questions
+% ---------------------------------------------------------------
+\section{Research Objectives and Questions}
+
+We structure our overarching research program around three Research
+Questions (RQs). In the current empirical evaluation, we fully answer
+\textbf{RQ1}, while \textbf{RQ2} and \textbf{RQ3} are formulated as
+methodological extensions for subsequent implementation.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{RQ1 (Completed) -- Discipline incremental value and
+  algorithmic benchmarking.}
+  \begin{itemize}
+    \item \textbf{RQ1a.} Upon completing the swim split ($C_1$) and
+    subsequently the bike split ($C_2$), by how many minutes do MAE,
+    RMSE, Bias, and $P_{90}$ change relative to the immediately
+    preceding checkpoint, and how do learned models compare with the
+    checkpoint-aware median-remaining-time baseline~$B_2$?
+    \item \textbf{RQ1b.} At each identical checkpoint with identical
+    feature access ($F_3$), how does an un-tuned CatBoost reference
+    model (\texttt{CatBoost\_ref}) perform relative to Linear
+    Regression (LR) and Random Forest (RF) across both homogeneous
+    (Phase~I) and cross-source (Phase~II) evaluations?
+  \end{itemize}
+
+  \item \textbf{RQ2 (Planned) -- Spatial generalization and venue
+  transferability.} Across future calendar years, how does
+  incorporating host venue identity ($F_3$ versus $F_2$) influence
+  error when evaluated separately on historically seen race locations
+  versus completely novel venues, and can Location-based Hierarchical
+  Regression improve generalization?
+
+  \item \textbf{RQ3 (Planned) -- Uncertainty quantification.} At each
+  checkpoint, what empirical coverage and interval width do historical
+  residual intervals, CatBoost Quantile Regression, and CQR achieve
+  relative to nominal 80\% and 90\% targets on reserved calibration
+  and evaluation years?
+\end{itemize}
+
+% ---------------------------------------------------------------
+% 3. Methodology
+% ---------------------------------------------------------------
+\section{Methodology}
+
+Table~\ref{tab:notation} summarizes the checkpoint and feature-set
+notation used throughout this paper.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Summary of checkpoint and geographic feature notation.}
+\label{tab:notation}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Symbol} & \textbf{Definition} \\
+\midrule
+$C_0$ & Pre-race checkpoint: registration and event attributes only ($S_{0,i} = 0$) \\
+$C_1$ & Post-swim checkpoint: $C_0$ attributes plus official swim split $W_i$ ($S_{1,i} = W_i$) \\
+$C_2$ & Post-bike checkpoint: $C_1$ attributes plus official bike split $B_i$ ($S_{2,i} = W_i + B_i$) \\
+$F_0$ & Core non-geographic features: \texttt{gender}, \texttt{ageband}, \texttt{eventyear} \\
+$F_1$ & $F_0$ plus athlete continent (planned ablation) \\
+$F_2$ & $F_0$ plus athlete country ISO code (planned ablation) \\
+$F_3$ & $F_2$ plus host venue name \texttt{eventlocation} (primary feature set evaluated here) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Study Cohort, Data Integration, and Quality Control}
+
+The dataset integrates historical race records from Kaggle
+(2004--2020) and endurance-data.com (2021--2023) into three linked
+relational tables (\texttt{Athletes}, \texttt{Races}, and
+\texttt{Results}) verified against an internal relational database
+snapshot (\texttt{1,153,194} raw rows; exact zero-discrepancy match on all
+1{,}152{,}658 eligible records across all identifiers, demographics, and
+split times). To guarantee valid comparisons, the following ingestion
+and quality-control (QC) rules were enforced:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Population eligibility.} Individual amateur age-group
+  triathletes (\texttt{AthleteType = Age-Group}) with sex recorded as
+  M or~F, belonging to one of eleven standardized five-year brackets
+  (18--24 through 70--74). \texttt{AgeBand} is extracted directly as
+  the integer lower bound of each bracket (18, 25, \dots, 70).
+
+  \item \textbf{Split validity and complete-case guarantee.} Official
+  swim time~($W_i$), bike time~($B_i$), and total finish time~($Y_i$)
+  must all be strictly positive and finite simultaneously at ingestion.
+  Because all three timing fields are validated up front, no record is
+  dropped between $C_0$, $C_1$, and $C_2$, guaranteeing an identical
+  paired test sample across all three checkpoints.
+
+  \item \textbf{String hygiene.} All CSVs were parsed with
+  \texttt{keep\_default\_na=False} so Namibia's country code
+  (\texttt{"NA"}) is preserved as a valid string rather than coerced to
+  missing. Categorical fields (\texttt{gender}, \texttt{countryiso},
+  \texttt{eventlocation}) had leading/trailing whitespace stripped,
+  with empty strings mapped to an explicit \texttt{"\_\_MISSING\_\_"}
+  token.
+
+  \item \textbf{Uniform logical-consistency audit (2004--2023).} A
+  logical consistency check verifying $Y_i > W_i + B_i$ was executed
+  uniformly across all twenty calendar years (2004--2023). Zero
+  violations occurred in 2004--2020 (all training partitions and
+  Phase~I evaluation/calibration partitions). Across 2021--2023,
+  113~records exhibited $Y_i \le W_i + B_i$ (58 in 2021, 46 in 2022,
+  and 9 in 2023), indicating anomalous timing artifacts or unreported
+  disqualifications. These 113 records were excluded from evaluation
+  and final metric computation. No percentile trimming was applied to
+  finish times.\footnote{Unlike the TCE, which trimmed finish times to
+  full-sample P1/P99 and fit encoders before splitting, the present
+  protocol retains the full untruncated distribution and fits all
+  preprocessing strictly on training splits.}
+
+  \item \textbf{Final analytical cohort.} Auditing 1{,}152{,}658
+  eligible records and removing the 113 inconsistent 2021--2023 records
+  retained \textbf{1{,}152{,}545} unique individual finishes spanning
+  2004--2023 ($697{,}267 + 125{,}912 + 329{,}366$).
+\end{enumerate}
+
+\subsection{Race-Progression Checkpoints}
+
+Finish-time prediction is formulated as a supervised regression task
+whose target $Y_i \in \mathbb{R}^{+}$ is the official elapsed finish
+time (stored in seconds, evaluated in minutes). Using the primary
+feature representation $F_3$:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Checkpoint 0 ($C_0$, pre-race):}
+  $X_{0,i} = [\text{Gender}_i,\; \text{AgeBand}_i,\;
+  \text{CountryISO}_i,\; \text{EventLocation}_i,\;
+  \text{EventYear}_i]$, with $S_{0,i} = 0$.
+
+  \item \textbf{Checkpoint 1 ($C_1$, post-swim):}
+  $X_{1,i} = [X_{0,i},\; W_i]$, with $S_{1,i} = W_i$.
+
+  \item \textbf{Checkpoint 2 ($C_2$, post-bike):}
+  $X_{2,i} = [X_{0,i},\; W_i,\; B_i]$, with $S_{2,i} = W_i + B_i$.
+\end{itemize}
+
+\noindent\textbf{Feature-leakage guardrail.} Running splits, final
+rankings, transition times (T1 and T2), split ratios, and any
+quantity derived from $Y_i$ are excluded from all feature sets.
+
+\subsection{Temporal Partitioning}
+\label{sec:temporal}
+
+Models are evaluated in two strictly out-of-period temporal phases
+with disjoint \texttt{raceid} sets between fit and test
+(Table~\ref{tab:temporal_split}).
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Temporal partitioning protocol. Counts reflect post-QC
+records; the 113 QC exclusions apply exclusively to the Phase~II test
+partition (329{,}479 pre-QC $\rightarrow$ 329{,}366 post-QC).}
+\label{tab:temporal_split}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\textwidth}{lcccc X}
+\toprule
+\textbf{Phase} & \textbf{Training} & \textbf{Reserved Calib.}
+  & \textbf{Test} & $N_{\text{fit}}$ & $N_{\text{test}}$ (races) \\
+\midrule
+I -- Homogeneous & 2004--2016 & 2017--2018 & 2019--2020
+  & 495{,}489 & 125{,}912 (127) \\
+II -- Cross-source & 2004--2018 & 2019--2020 & 2021--2023
+  & 697{,}267 & 329{,}366 (258) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Phase~I (within-source temporal evaluation)} trains on Kaggle
+records from 2004--2016 ($N = 495{,}489$) and tests on 2019--2020
+($N = 125{,}912$; 127 races). Years 2017--2018 ($N = 201{,}778$) are
+held out from training and reserved strictly for future interval
+calibration.
+
+\textbf{Phase~II (cross-period, cross-source evaluation)} trains on
+2004--2018 ($N = 697{,}267$), reserves 2019--2020 for future
+calibration, and evaluates on 2021--2023 records from Endurance-Data
+($N = 329{,}366$ post-QC; 258 races). Because both time period and data
+source change simultaneously, Phase~II measures combined temporal,
+source-coverage, and event-composition shifts rather than pure
+temporal drift alone.
+
+\subsection{Domain Baselines}
+\label{sec:baselines}
+
+Three non-parametric baselines are fit exclusively on each training
+partition:
+
+\begin{itemize}[leftmargin=*]
+  \item $B_0$ \textbf{(global median):}
+  $\hat{Y}_{B_0,i} = \mathrm{Median}(Y_{\text{fit}})$.
+
+  \item $B_1$ \textbf{(demographic-stratified median):}
+  $\hat{Y}_{B_1,i} = \mathrm{Median}(Y_{\text{fit}} \mid
+  \text{Gender}_i, \text{AgeBand}_i)$.
+
+  \item $B_2$ \textbf{(checkpoint-aware median-remaining-time baseline):}
+  Adds the known completed discipline split(s) $S_{t,i} \in \{0, W_i,
+  W_i + B_i\}$ (strictly excluding T1 and T2, matching model inputs)
+  to the training-set median of remaining time stratified solely by
+  sex and age bracket (not conditioned on individual split magnitude):
+  \begin{equation}
+    \hat{Y}_{B_2,i} = S_{t,i}
+    + \mathrm{Median}(Y_{\text{fit}} - S_t
+    \mid \text{Gender}_i, \text{AgeBand}_i).
+  \end{equation}
+  If a ($\text{Gender}$, $\text{AgeBand}$) training cell has fewer
+  than 30 observations, the estimate falls back to the sex-level
+  median, and then to the global median. At $C_0$ ($S_{0,i} = 0$),
+  $B_1$ and $B_2$ share the identical code path and outputs ($B_1 \equiv B_2$).
+\end{itemize}
+
+\subsection{Supervised Predictive Models and Implementation}
+
+All experiments were executed in Python~3.12 (\texttt{numpy==2.3.5},
+\texttt{pandas==2.2.3}, \texttt{scikit-learn==1.8.0},
+\texttt{catboost==1.2.10}). Each model is fit independently for every
+$(\text{phase}, \text{checkpoint})$ pair.
+
+\subsubsection{Shared Preprocessing for LR and RF}
+For both Linear Regression and Random Forest, categorical features
+(\texttt{gender}, \texttt{countryiso}, \texttt{eventlocation}) are
+encoded using \texttt{OneHotEncoder(handle\_unknown='ignore')}, which
+learns category dictionaries strictly from the training split and maps
+any unseen test category to an all-zero indicator vector (without
+frequency-threshold pooling). Numeric features (\texttt{ageband},
+\texttt{eventyear}, and active checkpoint splits) are standardized via
+\texttt{StandardScaler} fit solely on the training split to ensure
+numerical stability in sparse least squares.
+
+\subsubsection{Linear Regression (LR)}
+An additive main-effects Ordinary Least Squares model
+(\texttt{LinearRegression(tol=1e-9)}) trained on the transformed design
+matrix without explicit interaction terms.
+
+\subsubsection{Random Forest (RF)}
+An ensemble of 200 regression trees (\texttt{max\_depth = 12},
+\texttt{min\_samples\_leaf = 50}, \texttt{random\_state = 42}). The RF
+hyperparameters were retained from the TCE to provide a consistent tree
+architecture; however, results are not directly comparable across the
+two studies because the underlying datasets, preprocessing procedures,
+feature sets, and evaluation protocols differ.
+
+\subsubsection{CatBoost Reference Model (\texttt{CatBoost\_ref})}
+CatBoost~\cite{prokhorenkova2018catboost} employs ordered boosting and
+ordered categorical feature statistics designed to mitigate prediction
+shift associated with target-dependent statistics. Native categorical
+indices (\texttt{cat\_features = ['gender', 'countryiso',
+'eventlocation']}) are passed directly alongside unscaled numeric
+features. To provide a reproducible, un-tuned benchmark without
+post-hoc selection, \texttt{CatBoost\_ref} uses a fixed configuration:
+120 iterations, tree depth 6, learning rate $\eta = 0.08$, L2 leaf
+regularization $\lambda = 3$, RMSE objective,
+\texttt{one\_hot\_max\_size}~= 255, and random seed 42.
+
+\subsubsection{Planned Extensions: Location-Based Hierarchical
+Regression (HR) and CQR}
+\label{sec:hr}
+To address RQ2 and RQ3 in subsequent phases, we formulate: (i)~a
+linear mixed-effects model $Y_{ij} = X_{ij}\boldsymbol{\beta} + u_j +
+\epsilon_{ij}$ estimated via REML, where $u_j \sim \mathcal{N}(0,
+\sigma_u^2)$ captures venue-specific adjustments with empirical Bayes
+shrinkage and fallback $u_j = 0$ for unseen venues; and
+(ii)~Conformalized Quantile Regression~\cite{romano2019conformalized}
+calibrated on the reserved intervening years (2017--2018 for Phase~I;
+2019--2020 for Phase~II) for 80\% and 90\% prediction intervals.
+Neither HR nor CQR is evaluated in the current empirical tables.
+
+\subsection{Evaluation Metrics}
+
+Predicted finish times $\hat{Y}_i$ and ground-truth labels $Y_i$ are
+compared in minutes across all test records:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{MAE} (primary metric):
+  $\mathrm{MAE} = \frac{1}{N}\sum_{i=1}^{N}|\hat{Y}_i - Y_i|$.
+  \item \textbf{RMSE}:
+  $\mathrm{RMSE} = \sqrt{\frac{1}{N}\sum_{i=1}^{N}(\hat{Y}_i-Y_i)^2}$.
+  \item \textbf{Bias}:
+  $\mathrm{Bias} = \frac{1}{N}\sum_{i=1}^{N}(\hat{Y}_i - Y_i)$
+  (positive values denote over-prediction of finish time).
+  \item \textbf{$P_{90}$ absolute error:} the 90th percentile of
+  $|\hat{Y}_i - Y_i|$.
+  \item \textbf{Skill score} relative to $B_2$ at the same checkpoint:
+  $\mathrm{Skill} = \bigl(1 - \frac{\mathrm{MAE}_{\mathrm{model}}}
+  {\mathrm{MAE}_{B_2}}\bigr)\times 100\%$.
+\end{enumerate}
+Although race-cluster bootstrap resampling (10{,}000 resamples by
+\texttt{raceid}) is planned for statistical testing of pairwise
+$\Delta\mathrm{MAE}$ once full per-record prediction archives are
+attached, the present study reports exact complete-cohort aggregate
+metrics verified across all 32 evaluation runs.
+
+% ---------------------------------------------------------------
+% 4. Results
+% ---------------------------------------------------------------
+\section{Results}
+
+Table~\ref{tab:all_results} presents the complete experimental metrics
+across all 32 model runs spanning Phase~I ($N_{\text{test}} =
+125{,}912$; 127 races) and Phase~II ($N_{\text{test}} = 329{,}366$; 258
+races). Table~\ref{tab:transitions} summarizes checkpoint-to-checkpoint
+MAE reductions and skill scores relative to $B_2$.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Complete experimental results across Phase~I (train
+2004--2016, test 2019--2020, $N_{\text{fit}}=495{,}489$,
+$N_{\text{test}}=125{,}912$) and Phase~II (train 2004--2018, test
+2021--2023, $N_{\text{fit}}=697{,}267$, $N_{\text{test}}=329{,}366$).
+All errors are in minutes ($\text{Bias} = \hat{Y} - Y$). Bold marks the
+lowest MAE within each $(\text{Phase}, \text{Checkpoint})$ cell.}
+\label{tab:all_results}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{lllrrrr}
+\toprule
+\textbf{Phase} & \textbf{CP} & \textbf{Model} & \textbf{MAE (min)}
+  & \textbf{RMSE (min)} & \textbf{Bias (min)} & \textbf{$P_{90}$ (min)} \\
+\midrule
+\multirow{16}{*}{I (2019--2020)}
+  & $C_0$ & $B_0$                  & 40.03 & 50.38 & $-2.21$ & 80.75 \\
+  & $C_0$ & $B_1$                  & 38.03 & 47.94 & $-1.60$ & 75.87 \\
+  & $C_0$ & $B_2$                  & 38.03 & 47.94 & $-1.60$ & 75.87 \\
+  & $C_0$ & LR                     & 36.73 & 45.78 & $+5.48$ & 74.52 \\
+  & $C_0$ & \textbf{\texttt{CatBoost\_ref}} & \textbf{36.37} & \textbf{45.63} & $+1.32$ & \textbf{73.66} \\
+  & $C_0$ & RF                     & 37.06 & 46.73 & $-0.36$ & 75.07 \\
+\cmidrule{2-7}
+  & $C_1$ & $B_0$                  & 40.03 & 50.38 & $-2.21$ & 80.75 \\
+  & $C_1$ & $B_2$                  & 34.55 & 43.59 & $-1.64$ & 68.67 \\
+  & $C_1$ & LR                     & 30.77 & 39.60 & $+7.25$ & 61.68 \\
+  & $C_1$ & \textbf{\texttt{CatBoost\_ref}} & \textbf{28.43} & \textbf{35.96} & $+2.11$ & \textbf{56.88} \\
+  & $C_1$ & RF                     & 28.66 & 36.48 & $+0.86$ & 57.52 \\
+\cmidrule{2-7}
+  & $C_2$ & $B_0$                  & 40.03 & 50.38 & $-2.21$ & 80.75 \\
+  & $C_2$ & $B_2$                  & 21.23 & 27.20 & $-2.37$ & 41.77 \\
+  & $C_2$ & LR                     & 14.89 & 19.31 & $+2.68$ & 31.22 \\
+  & $C_2$ & \textbf{\texttt{CatBoost\_ref}} & \textbf{14.79} & \textbf{19.26} & $+0.91$ & \textbf{31.17} \\
+  & $C_2$ & RF                     & 15.19 & 19.92 & $+0.13$ & 32.20 \\
+\midrule
+\multirow{16}{*}{II (2021--2023)}
+  & $C_0$ & $B_0$                  & 45.35 & 57.15 & $-11.97$ & 94.15 \\
+  & $C_0$ & $B_1$                  & 43.06 & 54.31 & $-10.26$ & 88.08 \\
+  & $C_0$ & $B_2$                  & 43.06 & 54.31 & $-10.26$ & 88.08 \\
+  & $C_0$ & \textbf{LR}            & \textbf{41.70} & \textbf{51.86} & $-0.47$ & \textbf{83.92} \\
+  & $C_0$ & \texttt{CatBoost\_ref} & 41.72 & 52.24 & $-5.12$ & 84.61 \\
+  & $C_0$ & RF                     & 42.06 & 52.70 & $-4.76$ & 85.29 \\
+\cmidrule{2-7}
+  & $C_1$ & $B_0$                  & 45.35 & 57.15 & $-11.97$ & 94.15 \\
+  & $C_1$ & $B_2$                  & 39.55 & 50.14 & $-9.91$ & 81.18 \\
+  & $C_1$ & LR                     & 34.43 & 44.12 & $-0.50$ & 68.91 \\
+  & $C_1$ & \textbf{\texttt{CatBoost\_ref}} & \textbf{33.45} & \textbf{43.17} & $-4.43$ & \textbf{68.12} \\
+  & $C_1$ & RF                     & 33.65 & 43.50 & $-4.70$ & 68.79 \\
+\cmidrule{2-7}
+  & $C_2$ & $B_0$                  & 45.35 & 57.15 & $-11.97$ & 94.15 \\
+  & $C_2$ & $B_2$                  & 23.15 & 30.03 & $-7.77$ & 49.10 \\
+  & $C_2$ & LR                     & 16.55 & 22.53 & $-0.81$ & 34.57 \\
+  & $C_2$ & \textbf{\texttt{CatBoost\_ref}} & \textbf{15.79} & \textbf{21.02} & $-1.67$ & \textbf{33.33} \\
+  & $C_2$ & RF                     & 15.81 & 21.04 & $-1.69$ & 33.57 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Checkpoint-to-checkpoint MAE reductions (min) and skill
+scores relative to $B_2$ (computed from unrounded metrics).}
+\label{tab:transitions}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Phase} & \textbf{Model}
+  & $\Delta_{C_0\to C_1}$ & $\Delta_{C_1\to C_2}$ & $\Delta_{C_0\to C_2}$
+  & \textbf{Skill ($C_0$)} & \textbf{Skill ($C_1$)} & \textbf{Skill ($C_2$)} \\
+\midrule
+\multirow{4}{*}{I}
+  & $B_2$                  & $-3.48$ & $-13.32$ & $-16.80$ & ---      & ---       & ---       \\
+  & LR                     & $-5.96$ & $-15.88$ & $-21.84$ & $+3.41\%$ & $+10.94\%$ & $+29.88\%$ \\
+  & RF                     & $-8.40$ & $-13.47$ & $-21.87$ & $+2.54\%$ & $+17.04\%$ & $+28.45\%$ \\
+  & \texttt{CatBoost\_ref} & $-7.94$ & $-13.64$ & $-21.58$ & $+4.36\%$ & $+17.70\%$ & $+30.33\%$ \\
+\midrule
+\multirow{4}{*}{II}
+  & $B_2$                  & $-3.50$ & $-16.40$ & $-19.91$ & ---      & ---       & ---       \\
+  & LR                     & $-7.27$ & $-17.88$ & $-25.15$ & $+3.16\%$ & $+12.96\%$ & $+28.53\%$ \\
+  & RF                     & $-8.42$ & $-17.83$ & $-26.25$ & $+2.31\%$ & $+14.94\%$ & $+31.70\%$ \\
+  & \texttt{CatBoost\_ref} & $-8.27$ & $-17.67$ & $-25.93$ & $+3.10\%$ & $+15.42\%$ & $+31.80\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{RQ1a: Incremental Value of Swim and Bike Splits vs.\ $B_2$}
+
+Across both evaluation phases and every supervised model, forecast
+errors decline monotonically from $C_0$ to $C_1$ and $C_2$
+(Table~\ref{tab:all_results}):
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Post-swim update ($C_0 \to C_1$).} Adding the official
+  swim split alone yields a sizable MAE drop across all ML models:
+  \texttt{CatBoost\_ref} improves by 7.94\,min in Phase~I
+  (36.37 $\to$ 28.43\,min) and 8.27\,min in Phase~II
+  (41.72 $\to$ 33.45\,min); RF drops by 8.40\,min (Phase~I) and
+  8.42\,min (Phase~II). In contrast, the checkpoint-aware baseline
+  $B_2$ improves by only 3.48\,min (Phase~I) and 3.50\,min (Phase~II).
+  Consequently, \texttt{CatBoost\_ref} outperforms $B_2$ by 6.11\,min
+  (Skill $+17.70\%$) in Phase~I and 6.10\,min (Skill $+15.42\%$) in
+  Phase~II at $C_1$.
+
+  \item \textbf{Post-bike update ($C_1 \to C_2$).} Incorporating the
+  bike split produces an even larger absolute reduction:
+  \texttt{CatBoost\_ref} MAE falls by an additional 13.64\,min to
+  14.79\,min in Phase~I, and by 17.67\,min to 15.79\,min in Phase~II.
+  The margin over $B_2$ widens to 6.44\,min (Skill $+30.33\%$) in
+  Phase~I and 7.36\,min (Skill $+31.80\%$) in Phase~II.
+
+  \item \textbf{Tail-error contraction ($P_{90}$).} From $C_0$ to
+  $C_2$, 90th-percentile absolute error for \texttt{CatBoost\_ref}
+  contracts by $57.69\%$ in Phase~I (73.66 $\to$ 31.17\,min) and by
+  $60.61\%$ in Phase~II (84.61 $\to$ 33.33\,min).
+\end{itemize}
+
+\subsection{RQ1b: Algorithmic Comparison Across Checkpoints}
+
+Comparing LR, RF, and \texttt{CatBoost\_ref} under identical $F_3$
+information access reveals distinct regime behavior:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Pre-race ($C_0$).} Pre-race covariates explain modest
+  variance compared to demographic medians, with ML models beating
+  $B_1/B_2$ by only 0.97--1.66\,min in Phase~I and 1.00--1.36\,min in
+  Phase~II. \texttt{CatBoost\_ref} achieves the lowest MAE in Phase~I
+  (36.37\,min), whereas LR slightly outperforms \texttt{CatBoost\_ref}
+  in Phase~II (41.70 vs.\ 41.72\,min MAE; 51.86 vs.\ 52.24\,min RMSE).
+
+  \item \textbf{In-race checkpoints ($C_1$ and $C_2$).} Once observed
+  split times become available, tree ensembles consistently surpass LR
+  in MAE and RMSE. At $C_1$, \texttt{CatBoost\_ref} improves upon LR
+  by 2.34\,min in Phase~I (28.43 vs.\ 30.77\,min) and by 0.98\,min in
+  Phase~II (33.45 vs.\ 34.43\,min). At $C_2$, \texttt{CatBoost\_ref}
+  achieves the lowest MAE, RMSE, and $P_{90}$ in both phases
+  (14.79\,min in Phase~I; 15.79\,min in Phase~II), closely followed by
+  RF (15.19 and 15.81\,min) and LR (14.89 and 16.55\,min).
+\end{itemize}
+
+\subsection{Cross-Period Patterns and Pre-QC Sensitivity}
+
+Test errors are systematically higher in Phase~II than in Phase~I
+across all baselines and models (e.g., $B_0$ MAE increases from 40.03
+to 45.35\,min; \texttt{CatBoost\_ref} $C_0$ MAE increases from 36.37
+to 41.72\,min), accompanied by a marked shift in prediction bias.
+Whereas Phase~I biases are small and mostly positive ($+0.13$ to
+$+2.11$\,min for tree models; $+2.68$ to $+7.25$\,min for LR),
+Phase~II exhibits negative biases across all models, most severely in
+demographic baselines ($B_0$: $-11.97$\,min; $B_1/B_2$ at $C_0$:
+$-10.26$\,min) and tree ensembles (\texttt{CatBoost\_ref}: $-5.12$\,min
+at $C_0$, $-4.43$\,min at $C_1$), while LR remains nearly unbiased
+($-0.47$ to $-0.81$\,min).
+
+Evaluating sensitivity to the 113 Phase~II QC exclusions
+($Y_i \le W_i + B_i$) confirms why logical-consistency filtering is
+vital for quadratic metrics: prior to excluding those 113 records,
+Phase~II $C_2$ LR RMSE was inflated to 37.01\,min (vs.\ 22.53\,min
+post-QC) and $B_2$ RMSE was 34.23\,min (vs.\ 30.03\,min post-QC),
+while \texttt{CatBoost\_ref} MAE changed marginally (15.82 $\to$
+15.79\,min) and RMSE improved slightly (21.13 $\to$ 21.02\,min).
+
+% ---------------------------------------------------------------
+% 5. Discussion
+% ---------------------------------------------------------------
+\section{Discussion}
+
+\subsection{Practical Value of Post-Swim and Post-Bike Updates}
+
+A central operational question motivating this work was whether
+updating finish-time forecasts immediately after the swim split ($C_1$)
+provides sufficient error reduction before the much longer cycling
+stage finishes. Our paired results show that knowing \texttt{SwimTime}
+alone cuts MAE by 7.94--8.42\,min for tree-based ensembles
+(\texttt{CatBoost\_ref} and RF), with \texttt{CatBoost\_ref} beating
+the demographic split-addition baseline $B_2$ by over 6.10\,min (and LR
+beating $B_2$ by 3.78--5.13\,min). Because $B_2$ adds $W_i$ to a
+demographic median of remaining time, this margin demonstrates that
+learned models capture richer predictive relationships among swim
+split, athlete/event covariates, and overall finish time than simple
+demographic remainder medians. Following the bike split ($C_2$),
+MAE falls to roughly 15--16\,min ($P_{90} \approx 31$--33\,min),
+providing practical real-time guidance for pacing targets and course
+safety operations during the concluding half-marathon.
+
+\subsection{Bias Dynamics Under Cross-Source and Temporal Shifts}
+
+A striking empirical pattern in Phase~II is the divergence in bias
+between linear and tree-based models. Negative biases in $B_0$
+($-11.97$\,min) and $B_1$ ($-10.26$\,min) indicate that 2021--2023
+athletes in the Endurance-Data partition finished roughly 10--12\,min
+slower on average than the 2004--2018 training medians.
+Because tree-based models (RF and \texttt{CatBoost\_ref}) cannot
+extrapolate monotonic year trends beyond the 2018 training boundary,
+their $C_0$ and $C_1$ predictions inherit negative biases ($-4.43$ to
+$-5.12$\,min). In contrast, OLS Linear Regression allows unbounded
+linear extrapolation of continuous covariates such as \texttt{EventYear};
+combined with the positive $+5.48$ to $+7.25$\,min bias already
+exhibited by LR in Phase~I, this linear behavior is consistent with
+why LR yields near-zero mean bias ($-0.47$\,min at $C_0$; $-0.50$\,min
+at $C_1$) and matches \texttt{CatBoost\_ref} MAE at $C_0$ (41.70 vs.\
+41.72\,min) in Phase~II. Consistent with our temporal protocol design, this shift
+cannot be attributed solely to biological performance drift, as
+changes in source coverage and post-2020 event composition between
+Kaggle and Endurance-Data may co-occur.
+
+\subsection{Limitations and Planned Work}
+
+Several limitations of the present empirical study define clear next
+steps:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Un-tuned reference configuration.}
+  \texttt{CatBoost\_ref} was intentionally evaluated with a fixed
+  120-iteration, single-seed (seed~42) baseline; multi-seed stability
+  runs and validation-fold hyperparameter tuning remain to be executed.
+  \item \textbf{Venue naming and longitudinal identity.} Raw
+  \texttt{eventlocation} strings were used after whitespace trimming
+  without a verified cross-year alias dictionary, and individual
+  athletes lack persistent cross-year tracking IDs across the merged
+  sources.
+  \item \textbf{Unfinished RQ2 and RQ3 evaluations.} Formal geographic
+  ablation ($F_0$--$F_3$ stratified by seen vs.\ unseen venues),
+  Location-based Hierarchical Regression (REML), conformal prediction
+  intervals (CQR) on the reserved 2017--2018 / 2019--2020 splits, and
+  race-cluster bootstrap confidence intervals for $\Delta\mathrm{MAE}$
+  require the complete per-record prediction archive and are reserved
+  for the next phase of the research program.
+\end{enumerate}
+
+% ---------------------------------------------------------------
+% 6. Conclusion
+% ---------------------------------------------------------------
+\section{Conclusion}
+
+We presented a leakage-free, three-checkpoint supervised regression
+study on 1{,}152{,}545 quality-controlled IRONMAN~70.3 finishes across
+two out-of-period temporal evaluations. Sequential split updates
+monotonically reduce prediction error: incorporating swim time at
+$C_1$ reduces \texttt{CatBoost\_ref} MAE by 7.94\,min (Phase~I) and
+8.27\,min (Phase~II), while adding bike time at $C_2$ yields a further
+13.64\,min and 17.67\,min reduction, reaching 14.79\,min and
+15.79\,min MAE and shrinking 90th-percentile error by over 57\%. Across
+all in-race checkpoints ($C_1$ and $C_2$), tree-based ensembles
+(\texttt{CatBoost\_ref} and RF) outperform the checkpoint-aware
+demographic remainder baseline $B_2$ by 5.89--7.36\,min (and LR
+outperforms $B_2$ by 3.78--6.60\,min).
+These findings establish a verified benchmark for sequential triathlon
+forecasting and motivate ongoing extensions into hierarchical location
+modeling and conformal uncertainty quantification.
+
+% ---------------------------------------------------------------
+% References
+% ---------------------------------------------------------------
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{10}
+
+\bibitem{thuany2025modeling}
+M.~Thuany, D.~Valero, E.~Villiger, P.~Forte, K.~Weiss, M.~S.~Andrade,
+P.~T.~Nikolaidis, I.~Cuk, T.~Rosemann, and B.~Knechtle,
+``Modeling performance in {IRONMAN}~70.3 age group triathletes,''
+\emph{Sports Medicine~-- Open}, vol.~11, no.~1, Art.\ no.~148, 2025.
+\newblock \doi{10.1186/s40798-025-00948-0}
+
+\bibitem{nikolaidis2023predicting}
+P.~T.~Nikolaidis, D.~Valero, K.~Weiss, E.~Villiger, M.~Thuany,
+C.~V.~Sousa, M.~Andrade, and B.~Knechtle,
+``Predicting overall performance in {Ironman}~70.3 age group
+triathletes through split disciplines,''
+\emph{Scientific Reports}, vol.~13, Art.\ no.~11492, 2023.
+\newblock \doi{10.1038/s41598-023-38181-y}
+
+\bibitem{romano2019conformalized}
+Y.~Romano, E.~Patterson, and E.~J.~Cand\`{e}s,
+``Conformalized quantile regression,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)},
+vol.~32, 2019, pp.~3538--3548.
+
+\bibitem{prokhorenkova2018catboost}
+L.~Prokhorenkova, G.~Gusev, A.~Vorobev, A.~V.~Dorogush,
+and A.~Gulin,
+``{CatBoost}: Unbiased boosting with categorical features,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)},
+vol.~31, 2018, pp.~6639--6649.
+
+\bibitem{kaggle_dataset}
+David,
+``{IRONMAN} 70.3 races 2004--2020,''
+Kaggle Dataset; Endurance-Data, ``Endurance-data race results
+2021--2023.'' [Online]. Available: \url{https://www.endurance-data.com}
+
+\bibitem{repo_artifact}
+T.~M.~Khue, N.~S.~Thu, P.~P.~Thao, and D.~T.~G.~Hoi,
+``{IRONMAN}~70.3 finish-time prediction: Code, trained models and
+reproducibility artifacts,''
+GitHub repository, FPT University Da Nang, 2026. [Online].
+Available: \url{https://github.com/kaity121/ironman-70-3-finish-time}
+
+\end{thebibliography}
+
+\end{document}
